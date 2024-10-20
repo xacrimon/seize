@@ -140,7 +140,7 @@ impl Collector {
         &self,
         ptr: &AtomicPtr<T>,
         _ordering: Ordering,
-        thread: Thread,
+        reservation: &Reservation
     ) -> *mut T {
         if self.epoch_frequency.is_none() {
             // Epoch tracking is disabled.
@@ -149,8 +149,6 @@ impl Collector {
             // total order. See `enter` for details.
             return ptr.load(Ordering::SeqCst);
         }
-
-        let reservation = self.reservations.load(thread);
 
         // Load the last epoch we recorded on this thread.
         //

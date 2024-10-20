@@ -2,6 +2,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
+use crate::raw::Reservation;
 use crate::tls::Thread;
 use crate::{AsLink, Collector, Link};
 
@@ -103,6 +104,8 @@ pub struct LocalGuard<'a> {
     collector: &'a Collector,
     // The current thread.
     thread: Thread,
+    // The reservation for the current thread. Stored to avoid TLS lookups.
+    reservation: *const Reservation,
     // `LocalGuard` not be `Send or Sync` as we are tied to the state of the
     // current thread in the collector.
     _unsend: PhantomData<*mut ()>,
@@ -127,6 +130,7 @@ impl LocalGuard<'_> {
 
         LocalGuard {
             thread,
+            reservation,
             collector,
             _unsend: PhantomData,
         }
@@ -137,8 +141,8 @@ impl Guard for LocalGuard<'_> {
     /// Protects the load of an atomic pointer.
     #[inline]
     fn protect<T: AsLink>(&self, ptr: &AtomicPtr<T>, ordering: Ordering) -> *mut T {
-        // Safety: `self.thread` is the current thread.
-        unsafe { self.collector.raw.protect_local(ptr, ordering, self.thread) }
+        // Safety: `self.reservation` belongs to the current thread.
+        unsafe { self.collector.raw.protect_local(ptr, ordering, &*self.reservation) }
     }
 
     /// Retires a value, running `reclaim` when no threads hold a reference to
@@ -190,8 +194,8 @@ impl Guard for LocalGuard<'_> {
 impl Drop for LocalGuard<'_> {
     #[inline]
     fn drop(&mut self) {
-        // Safety: `self.thread` is the current thread.
-        let reservation = unsafe { self.collector.raw.reservation(self.thread) };
+        // Safety: `self.reservation` belongs to the current thread.
+        let reservation = unsafe { &*self.reservation };
 
         // Decrement the active guard count.
         let guards = reservation.guards.get();
