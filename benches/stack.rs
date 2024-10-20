@@ -1,18 +1,25 @@
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
+const THREADS: usize = 8;
+const ITERATIONS: usize = 1000;
+
 fn treiber_stack(c: &mut Criterion) {
     c.bench_function("trieber_stack-haphazard", |b| {
         b.iter(|| {
+            let barrier = Arc::new(Barrier::new(THREADS));
             let stack = Arc::new(haphazard_stack::TreiberStack::new());
 
-            let handles = (0..8)
+            let handles = (0..THREADS - 1)
                 .map(|_| {
+                    let barrier = barrier.clone();
                     let stack = stack.clone();
                     thread::spawn(move || {
-                        for i in 0..1000 {
+                        barrier.wait();
+
+                        for i in 0..ITERATIONS {
                             stack.push(i);
                             assert!(stack.pop().is_some());
                         }
@@ -20,7 +27,8 @@ fn treiber_stack(c: &mut Criterion) {
                 })
                 .collect::<Vec<_>>();
 
-            for i in 0..1000 {
+            barrier.wait();
+            for i in 0..ITERATIONS {
                 stack.push(i);
                 assert!(stack.pop().is_some());
             }
@@ -36,13 +44,17 @@ fn treiber_stack(c: &mut Criterion) {
 
     c.bench_function("trieber_stack-crossbeam", |b| {
         b.iter(|| {
+            let barrier = Arc::new(Barrier::new(THREADS));
             let stack = Arc::new(crossbeam_stack::TreiberStack::new());
 
-            let handles = (0..8)
+            let handles = (0..THREADS - 1)
                 .map(|_| {
+                    let barrier = barrier.clone();
                     let stack = stack.clone();
                     thread::spawn(move || {
-                        for i in 0..1000 {
+                        barrier.wait();
+
+                        for i in 0..ITERATIONS {
                             stack.push(i);
                             assert!(stack.pop().is_some());
                         }
@@ -50,7 +62,8 @@ fn treiber_stack(c: &mut Criterion) {
                 })
                 .collect::<Vec<_>>();
 
-            for i in 0..1000 {
+            barrier.wait();
+            for i in 0..ITERATIONS {
                 stack.push(i);
                 assert!(stack.pop().is_some());
             }
@@ -66,13 +79,17 @@ fn treiber_stack(c: &mut Criterion) {
 
     c.bench_function("trieber_stack-seize", |b| {
         b.iter(|| {
+            let barrier = Arc::new(Barrier::new(THREADS));
             let stack = Arc::new(seize_stack::TreiberStack::new());
 
-            let handles = (0..8)
+            let handles = (0..THREADS - 1)
                 .map(|_| {
+                    let barrier = barrier.clone();
                     let stack = stack.clone();
                     thread::spawn(move || {
-                        for i in 0..1000 {
+                        barrier.wait();
+
+                        for i in 0..ITERATIONS {
                             stack.push(i);
                             assert!(stack.pop().is_some());
                         }
@@ -80,7 +97,8 @@ fn treiber_stack(c: &mut Criterion) {
                 })
                 .collect::<Vec<_>>();
 
-            for i in 0..1000 {
+            barrier.wait();
+            for i in 0..ITERATIONS {
                 stack.push(i);
                 assert!(stack.pop().is_some());
             }
