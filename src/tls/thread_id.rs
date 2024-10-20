@@ -82,6 +82,11 @@ impl Thread {
     pub fn free(self) {
         thread_id_manager().lock().unwrap().free(self.id);
     }
+
+    /// Get the thread ID.
+    pub fn id(&self) -> usize {
+        self.id
+    }
 }
 
 #[cold]
