@@ -142,7 +142,11 @@ impl Guard for LocalGuard<'_> {
     #[inline]
     fn protect<T: AsLink>(&self, ptr: &AtomicPtr<T>, ordering: Ordering) -> *mut T {
         // Safety: `self.reservation` belongs to the current thread.
-        unsafe { self.collector.raw.protect_local(ptr, ordering, &*self.reservation) }
+        unsafe {
+            self.collector
+                .raw
+                .protect_local(ptr, ordering, &*self.reservation)
+        }
     }
 
     /// Retires a value, running `reclaim` when no threads hold a reference to

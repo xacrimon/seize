@@ -140,7 +140,7 @@ impl Collector {
         &self,
         ptr: &AtomicPtr<T>,
         _ordering: Ordering,
-        reservation: &Reservation
+        reservation: &Reservation,
     ) -> *mut T {
         if self.epoch_frequency.is_none() {
             // Epoch tracking is disabled.
