@@ -1,5 +1,5 @@
 use crate::tls::Thread;
-use crate::{raw, LocalGuard, OwnedGuard};
+use crate::{raw, Guard, LocalGuard, OwnedGuard};
 
 use std::cell::UnsafeCell;
 use std::fmt;
@@ -162,9 +162,9 @@ impl Collector {
     /// [`link_value`](Collector::link_value)
     /// and [`link_boxed`](Collector::link_boxed) helpers.
     #[inline]
-    pub fn link(&self) -> Link {
+    pub fn link<G: Guard>(&self, guard: &G) -> Link {
         Link {
-            node: UnsafeCell::new(self.raw.node()),
+            node: UnsafeCell::new(self.raw.node(guard.thread())),
         }
     }
 
@@ -179,9 +179,9 @@ impl Collector {
     /// }
     /// ```
     #[inline]
-    pub fn link_value<T>(&self, value: T) -> Linked<T> {
+    pub fn link_value<T, G: Guard>(&self, guard: &G, value: T) -> Linked<T> {
         Linked {
-            link: self.link(),
+            link: self.link(guard),
             value,
         }
     }
@@ -197,9 +197,9 @@ impl Collector {
     /// }))
     /// ```
     #[inline]
-    pub fn link_boxed<T>(&self, value: T) -> *mut Linked<T> {
+    pub fn link_boxed<T, G: Guard>(&self, guard: &G, value: T) -> *mut Linked<T> {
         Box::into_raw(Box::new(Linked {
-            link: self.link(),
+            link: self.link(guard),
             value,
         }))
     }

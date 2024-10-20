@@ -81,7 +81,7 @@ pub trait Guard {
     /// current thread, avoiding TLS overhead. Note that thread IDs may be
     /// reused, so the value returned is only unique for the lifetime of
     /// this thread.
-    fn thread_id(&self) -> usize;
+    fn thread(&self) -> Thread;
 
     /// Returns `true` if this guard belongs to the given collector.
     ///
@@ -176,8 +176,8 @@ impl Guard for LocalGuard<'_> {
 
     /// Returns a numeric identifier for the current thread.
     #[inline]
-    fn thread_id(&self) -> usize {
-        self.thread.id
+    fn thread(&self) -> Thread {
+        self.thread
     }
 
     /// Returns `true` if this guard belongs to the given collector.
@@ -293,12 +293,12 @@ impl Guard for OwnedGuard<'_> {
 
     /// Returns a numeric identifier for the current thread.
     #[inline]
-    fn thread_id(&self) -> usize {
+    fn thread(&self) -> Thread {
         // We can't return the ID of our thread slot because `OwnedGuard`
         // is `Send` so the ID is not uniquely tied to the current thread.
         // We also can't return the OS thread ID because it might conflict
         // with our thread IDs, so we have to get/create the current thread.
-        Thread::current().id
+        Thread::current()
     }
 
     /// Returns `true` if this guard belongs to the given collector.
@@ -371,8 +371,8 @@ impl Guard for UnprotectedGuard {
 
     /// Returns a numeric identifier for the current thread.
     #[inline]
-    fn thread_id(&self) -> usize {
-        Thread::current().id
+    fn thread(&self) -> Thread {
+        Thread::current()
     }
 
     /// Unprotected guards aren't tied to a specific collector, so this always

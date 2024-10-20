@@ -143,12 +143,15 @@ mod seize_stack {
         }
 
         pub fn push(&self, value: T) {
-            let node = self.collector.link_boxed(Node {
-                data: ManuallyDrop::new(value),
-                next: ptr::null_mut(),
-            });
-
             let guard = self.collector.enter();
+
+            let node = self.collector.link_boxed(
+                &guard,
+                Node {
+                    data: ManuallyDrop::new(value),
+                    next: ptr::null_mut(),
+                },
+            );
 
             loop {
                 let head = guard.protect(&self.head, Ordering::Relaxed);

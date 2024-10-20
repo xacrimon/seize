@@ -65,7 +65,7 @@ impl Collector {
 
     /// Create a new node.
     #[inline]
-    pub fn node(&self) -> Node {
+    pub fn node(&self, thread: Thread) -> Node {
         // Record the current epoch value.
         //
         // Note that it's fine if we see an older epoch, in which case more threads
@@ -73,7 +73,7 @@ impl Collector {
         let birth_epoch = match self.epoch_frequency {
             Some(ref frequency) => {
                 // Safety: Node counts are only accessed by the current thread.
-                let count = unsafe { &mut *self.node_count.load(Thread::current()).get() };
+                let count = unsafe { &mut *self.node_count.load(thread).get() };
                 *count += 1;
 
                 // Advance the global epoch if we reached the epoch frequency.
