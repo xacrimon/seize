@@ -5,6 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::cell::Cell;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::sync::{Mutex, OnceLock};
@@ -69,7 +70,7 @@ impl Thread {
     /// Get the current thread.
     #[inline]
     pub fn current() -> Thread {
-        THREAD.with(|holder| holder.0)
+        THREAD.get().unwrap_or_else(prepare_fast_path)
     }
 
     /// Create a new thread.
@@ -83,9 +84,19 @@ impl Thread {
     }
 }
 
+#[cold]
+#[inline(never)]
+fn prepare_fast_path() -> Thread {
+    let thread = THREAD_GUARD.with(|thread| thread.0);
+    THREAD.set(Some(thread));
+    thread
+}
+
 thread_local! {
     /// The current thread.
-    static THREAD: ThreadGuard = ThreadGuard(Thread::create());
+    static THREAD: Cell<Option<Thread>> = const { Cell::new(None) };
+
+    static THREAD_GUARD: ThreadGuard = ThreadGuard(Thread::create());
 }
 
 /// Wrapper around `Thread` that allocates and deallocates the ID.
