@@ -24,7 +24,7 @@ cfg_if! {
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 mod default {
-    use core::sync::atomic::{fence, AtomicPtr, Ordering};
+    use core::sync::atomic::{fence, AtomicPtr, AtomicU64, Ordering};
 
     /// Issues a light memory barrier for fast path.
     ///
@@ -37,6 +37,16 @@ mod default {
     #[inline]
     pub fn light_ptr_store<T>(m: &AtomicPtr<T>, value: *mut T) {
         m.store(value, Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn light_u64_store(m: &AtomicU64, value: u64) {
+        m.store(value, Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn light_ptr_load<T>(m: &AtomicPtr<T>, _ordering: Ordering) -> *mut T {
+        m.load(Ordering::SeqCst)
     }
 
     /// Issues a heavy memory barrier for slow path.
@@ -263,6 +273,31 @@ mod linux {
                 atomic::compiler_fence(atomic::Ordering::SeqCst);
             }
             Fallback => m.store(value, atomic::Ordering::SeqCst),
+        }
+    }
+
+    #[inline]
+    pub fn light_u64_store(m: &atomic::AtomicU64, value: u64) {
+        use self::Strategy::*;
+        match *STRATEGY {
+            Membarrier | Mprotect => {
+                m.store(value, atomic::Ordering::Relaxed);
+                atomic::compiler_fence(atomic::Ordering::SeqCst);
+            }
+            Fallback => m.store(value, atomic::Ordering::SeqCst),
+        }
+    }
+
+    #[inline]
+    pub fn light_ptr_load<T>(m: &atomic::AtomicPtr<T>, ordering: atomic::Ordering) -> *mut T {
+        use self::Strategy::*;
+        match *STRATEGY {
+            Membarrier | Mprotect => {
+                let ptr = m.load(ordering);
+                atomic::compiler_fence(atomic::Ordering::SeqCst);
+                ptr
+            }
+            Fallback => m.load(atomic::Ordering::SeqCst),
         }
     }
 

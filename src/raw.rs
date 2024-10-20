@@ -140,7 +140,7 @@ impl Collector {
     pub unsafe fn protect_local<T>(
         &self,
         ptr: &AtomicPtr<T>,
-        _ordering: Ordering,
+        ordering: Ordering,
         reservation: &Reservation,
     ) -> *mut T {
         if self.epoch_frequency.is_none() {
@@ -148,7 +148,7 @@ impl Collector {
             //
             // Note that any protected loads still need to be SeqCst to participate in the
             // total order. See `enter` for details.
-            return ptr.load(Ordering::SeqCst);
+            return barrier::light_ptr_load(&ptr, ordering);
         }
 
         // Load the last epoch we recorded on this thread.
@@ -165,7 +165,7 @@ impl Collector {
             //   that this requires the pointer to have been stored with Release ordering,
             //   which is technically undocumented. However, any Relaxed stores would be
             //   unsound to access anyways.
-            let ptr = ptr.load(Ordering::SeqCst);
+            let ptr = barrier::light_ptr_load(&ptr, ordering);
 
             // Relaxed: We acquired at least the pointer's birth epoch above.
             let current_epoch = self.epoch.load(Ordering::Relaxed);
@@ -184,7 +184,7 @@ impl Collector {
             //   in the current epoch.
             // - If the fence comes first, we will see the new values of any objects being
             //   retired by that thread.
-            reservation.epoch.store(current_epoch, Ordering::SeqCst);
+            barrier::light_u64_store(&reservation.epoch, current_epoch);
             prev_epoch = current_epoch;
         }
     }
