@@ -16,3 +16,4 @@ pub mod reclaim;
 pub use collector::{AsLink, Collector, Link, Linked};
 pub use deferred::Deferred;
 pub use guard::{unprotected, Guard, LocalGuard, OwnedGuard, UnprotectedGuard};
+pub use utils::CachePadded;
