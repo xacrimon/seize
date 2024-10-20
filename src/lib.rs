@@ -2,6 +2,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 
+mod barrier;
 mod collector;
 mod deferred;
 mod guard;

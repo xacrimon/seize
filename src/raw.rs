@@ -1,3 +1,4 @@
+use crate::barrier;
 use crate::tls::{Thread, ThreadLocal};
 use crate::utils::CachePadded;
 use crate::{AsLink, Deferred, Link};
@@ -127,7 +128,7 @@ impl Collector {
         //
         // Note that all pointer loads must also be SeqCst and thus participate in this
         // total order.
-        reservation.head.store(ptr::null_mut(), Ordering::SeqCst);
+        barrier::light_ptr_store(&reservation.head, ptr::null_mut());
     }
 
     /// Load an atomic pointer.
@@ -444,7 +445,7 @@ impl Collector {
         // - If our fence comes first, they will see the new values of any objects in
         //   this batch.
         // - If their fence comes first, we will see the new thread.
-        atomic::fence(Ordering::SeqCst);
+        barrier::heavy();
 
         // Safety: Local batches are only accessed by the current thread.
         let batch = unsafe { (*local_batch).batch };
