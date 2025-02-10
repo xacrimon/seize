@@ -420,7 +420,7 @@ mod macos {
             'claim_responsibility: loop {
                 let (ref mut claimed, completed) = *guard;
                 match skip_after {
-                    Some(ref skip_after) if completed > *skip_after => return,
+                    Some(ref skip_after) if completed >= *skip_after => return,
                     _ => (),
                 }
 
