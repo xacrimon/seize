@@ -201,7 +201,7 @@ impl Collector {
         // Note that `add` doesn't ever actually reclaim the pointer immediately if
         // the current thread is active. Instead, it adds it to the current thread's
         // reclamation list, but we don't guarantee that publicly.
-        unsafe { self.raw.add(ptr, reclaim, Thread::current()) }
+        unsafe { self.raw.add(ptr, reclaim, &*Thread::current_indirect()) }
     }
 
     /// Reclaim any values that have been retired.

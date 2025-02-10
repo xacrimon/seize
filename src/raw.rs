@@ -185,8 +185,8 @@ impl Collector {
     ///
     /// This method is not safe to call concurrently with the same `thread`.
     #[inline]
-    pub unsafe fn try_retire_batch(&self, thread: Thread) {
-        let local_batch = self.batches.load(thread).get();
+    pub unsafe fn try_retire_batch(&self, thread: &Thread) {
+        let local_batch = self.batches.load_fast(&thread).get();
 
         // Safety: The caller guarantees this method is not called concurrently
         // with the same `thread`.

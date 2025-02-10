@@ -105,10 +105,10 @@ pub trait Guard {
 /// trait.
 pub struct LocalGuard<'a> {
     collector: &'a Collector,
-    // The current thread.
-    thread: &'static Thread,
     // The reservation of the current thread.
     reservation: *const Reservation,
+    // The current thread.
+    thread: *const Thread,
     // `LocalGuard` not be `Send or Sync` as we are tied to the state of the
     // current thread in the collector.
     _unsend: PhantomData<*mut ()>,
@@ -117,9 +117,10 @@ pub struct LocalGuard<'a> {
 impl LocalGuard<'_> {
     #[inline]
     pub(crate) fn enter(collector: &Collector) -> LocalGuard<'_> {
-        let thread = Thread::current();
+        let thread = Thread::current_indirect();
+
         // Safety: `thread` is the current thread.
-        let reservation = unsafe { collector.raw.reservation(thread) };
+        let reservation = unsafe { collector.raw.reservation(&*thread) };
 
         // Calls to `enter` may be reentrant, so we need to keep track of the number
         // of active guards for the current thread.
@@ -138,6 +139,11 @@ impl LocalGuard<'_> {
             _unsend: PhantomData,
         }
     }
+
+    #[inline]
+    fn thread(&self) -> &Thread {
+        unsafe { &*self.thread }
+    }
 }
 
 impl Guard for LocalGuard<'_> {
@@ -154,7 +160,7 @@ impl Guard for LocalGuard<'_> {
         // Safety:
         // - `self.thread` is the current thread.
         // - The validity of the pointer is guaranteed by the caller.
-        unsafe { self.collector.raw.add(ptr, reclaim, self.thread) }
+        unsafe { self.collector.raw.add(ptr, reclaim, self.thread()) }
     }
 
     /// Refreshes the guard.
@@ -177,13 +183,13 @@ impl Guard for LocalGuard<'_> {
         // to add the batch to any active reservations lists, including ours.
         //
         // Safety: `self.thread` is the current thread.
-        unsafe { self.collector.raw.try_retire_batch(*self.thread) }
+        unsafe { self.collector.raw.try_retire_batch(self.thread()) }
     }
 
     /// Returns a numeric identifier for the current thread.
     #[inline]
     fn thread_id(&self) -> usize {
-        self.thread.id
+        self.thread().id
     }
 
     /// Returns `true` if this guard belongs to the given collector.
@@ -300,7 +306,7 @@ impl Guard for OwnedGuard<'_> {
         // to add the batch to any active reservations lists, including ours.
         //
         // Safety: We hold the lock and so have unique access to the batch.
-        unsafe { self.collector.raw.try_retire_batch(self.thread) }
+        unsafe { self.collector.raw.try_retire_batch(&self.thread) }
     }
 
     /// Returns a numeric identifier for the current thread.

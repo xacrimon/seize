@@ -85,7 +85,12 @@ impl Thread {
 
     /// Get the current thread.
     #[inline]
-    pub fn current() -> &'static Thread {
+    pub fn current() -> Thread {
+        unsafe { *Thread::current_indirect() }
+    }
+
+    #[inline]
+    pub fn current_indirect() -> *const Thread {
         let thread = unsafe { &*THREAD.get() };
         if thread.id == 0 {
             return Thread::init_slow();
@@ -97,13 +102,13 @@ impl Thread {
     /// Slow path for allocating a thread ID.
     #[cold]
     #[inline(never)]
-    fn init_slow() -> &'static Thread {
+    fn init_slow() -> *const Thread {
         let new = Thread::create();
         unsafe {
             ptr::write(THREAD.get(), new);
         }
         THREAD_GUARD.with(|guard| guard.id.set(new.id));
-        unsafe { &*THREAD.get() }
+        THREAD.get()
     }
 
     /// Create a new thread.
