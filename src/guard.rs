@@ -105,10 +105,10 @@ pub trait Guard {
 /// trait.
 pub struct LocalGuard<'a> {
     collector: &'a Collector,
-    // The reservation of the current thread.
-    reservation: *const Reservation,
     // The current thread.
     thread: *const Thread,
+    // The reservation of the current thread.
+    reservation: *const Reservation,
     // `LocalGuard` not be `Send or Sync` as we are tied to the state of the
     // current thread in the collector.
     _unsend: PhantomData<*mut ()>,
