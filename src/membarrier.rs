@@ -20,16 +20,19 @@ pub use linux::*;
 #[cfg(all(target_os = "windows", feature = "fast-barrier", not(miri)))]
 pub use windows::*;
 
+#[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
+pub use macos::*;
+
 #[cfg(any(
     not(feature = "fast-barrier"),
-    not(any(target_os = "windows", target_os = "linux")),
+    not(any(target_os = "windows", target_os = "linux", target_os = "macos")),
     miri
 ))]
 pub use default::*;
 
 #[cfg(any(
     not(feature = "fast-barrier"),
-    not(any(target_os = "windows", target_os = "linux")),
+    not(any(target_os = "windows", target_os = "linux", target_os = "macos")),
     miri
 ))]
 mod default {
@@ -359,5 +362,41 @@ mod windows {
     pub fn heavy() {
         // Invoke the `FlushProcessWriteBuffers()` system call.
         unsafe { windows_sys::Win32::System::Threading::FlushProcessWriteBuffers() }
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
+mod macos {
+    use core::sync::atomic::{self, Ordering};
+
+    extern "C" {
+        fn WEAK_MEMORY_BEGONE();
+    }
+
+    pub fn detect() {}
+
+    #[inline]
+    pub fn light_store() -> Ordering {
+        Ordering::Relaxed
+    }
+
+    #[inline]
+    pub fn light_store_barrier() {
+        atomic::compiler_fence(Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn light_load() -> Ordering {
+        Ordering::SeqCst
+    }
+
+    #[inline]
+    pub fn light_load_barrier() {
+        atomic::compiler_fence(Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn heavy() {
+        unsafe { WEAK_MEMORY_BEGONE(); }
     }
 }
