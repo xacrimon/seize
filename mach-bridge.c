@@ -25,8 +25,6 @@ void WEAK_MEMORY_BEGONE() {
     thread_act_t *pThreads;
     kern_return_t machret = task_threads(mach_task_self(), &pThreads, &cThreads);
     CHECK_MACH("task_threads()", machret);
-    //printf("Number of threads: %u\n", cThreads);
-    //exit(1);
 
     uintptr_t sp;
     uintptr_t registerValues[128];
