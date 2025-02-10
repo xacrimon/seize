@@ -229,6 +229,10 @@ impl Collector {
         unsafe { self.raw.reclaim_all() };
     }
 
+    pub fn duplicate(&self) -> Self {
+        Self::new().batch_size(self.raw.batch_size)
+    }
+
     #[inline]
     pub(crate) fn id_eq(this: &Collector, other: &Collector) -> bool {
         this.id == other.id
