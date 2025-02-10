@@ -57,17 +57,17 @@ where
     }
 
     #[inline]
-    pub fn load_fast(&self, thread: Thread) -> &T
+    pub fn load_fast(&self, thread: &Thread) -> &T
     where
         T: Default,
     {
         #[cold]
         #[inline(never)]
-        fn fallback<T>(thread_local: &ThreadLocal<T>, thread: Thread) -> &T
+        fn fallback<'a, T>(thread_local: &'a ThreadLocal<T>, thread: &Thread) -> &'a T
         where
             T: Send + Default,
         {
-            thread_local.load_or(T::default, thread)
+            thread_local.load_or(T::default, *thread)
         }
 
         let bucket = unsafe { self.buckets.get_unchecked(thread.bucket) };
@@ -100,8 +100,8 @@ where
         self.load_or(T::default, thread)
     }
 
-    /// Load the entry for the given `thread`, initializing it using the provided
-    /// function if necessary.
+    /// Load the entry for the given `thread`, initializing it using the
+    /// provided function if necessary.
     #[inline]
     pub fn load_or(&self, create: impl Fn() -> T, thread: Thread) -> &T {
         let bucket = unsafe { self.buckets.get_unchecked(thread.bucket) };
@@ -318,11 +318,11 @@ mod tests {
         let create = make_create();
         let tls = ThreadLocal::with_capacity(1);
         assert_eq!(None, tls.try_load());
-        assert_eq!(0, *tls.load_or(|| create(), Thread::current()));
+        assert_eq!(0, *tls.load_or(|| create(), *Thread::current()));
         assert_eq!(Some(&0), tls.try_load());
-        assert_eq!(0, *tls.load_or(|| create(), Thread::current()));
+        assert_eq!(0, *tls.load_or(|| create(), *Thread::current()));
         assert_eq!(Some(&0), tls.try_load());
-        assert_eq!(0, *tls.load_or(|| create(), Thread::current()));
+        assert_eq!(0, *tls.load_or(|| create(), *Thread::current()));
         assert_eq!(Some(&0), tls.try_load());
     }
 
@@ -331,34 +331,34 @@ mod tests {
         let create = make_create();
         let tls = Arc::new(ThreadLocal::with_capacity(1));
         assert_eq!(None, tls.try_load());
-        assert_eq!(0, *tls.load_or(|| create(), Thread::current()));
+        assert_eq!(0, *tls.load_or(|| create(), *Thread::current()));
         assert_eq!(Some(&0), tls.try_load());
 
         let tls2 = tls.clone();
         let create2 = create.clone();
         thread::spawn(move || {
             assert_eq!(None, tls2.try_load());
-            assert_eq!(1, *tls2.load_or(|| create2(), Thread::current()));
+            assert_eq!(1, *tls2.load_or(|| create2(), *Thread::current()));
             assert_eq!(Some(&1), tls2.try_load());
         })
         .join()
         .unwrap();
 
         assert_eq!(Some(&0), tls.try_load());
-        assert_eq!(0, *tls.load_or(|| create(), Thread::current()));
+        assert_eq!(0, *tls.load_or(|| create(), *Thread::current()));
     }
 
     #[test]
     fn iter() {
         let tls = Arc::new(ThreadLocal::with_capacity(1));
-        tls.load_or(|| Box::new(1), Thread::current());
+        tls.load_or(|| Box::new(1), *Thread::current());
 
         let tls2 = tls.clone();
         thread::spawn(move || {
-            tls2.load_or(|| Box::new(2), Thread::current());
+            tls2.load_or(|| Box::new(2), *Thread::current());
             let tls3 = tls2.clone();
             thread::spawn(move || {
-                tls3.load_or(|| Box::new(3), Thread::current());
+                tls3.load_or(|| Box::new(3), *Thread::current());
             })
             .join()
             .unwrap();
@@ -377,10 +377,10 @@ mod tests {
     #[test]
     fn iter_snapshot() {
         let tls = Arc::new(ThreadLocal::with_capacity(1));
-        tls.load_or(|| Box::new(1), Thread::current());
+        tls.load_or(|| Box::new(1), *Thread::current());
 
         let iterator = tls.iter();
-        tls.load_or(|| Box::new(2), Thread::current());
+        tls.load_or(|| Box::new(2), *Thread::current());
 
         let v = iterator.map(|x| **x).collect::<Vec<i32>>();
         assert_eq!(vec![1], v);
@@ -397,7 +397,7 @@ mod tests {
         }
 
         let dropped = Arc::new(AtomicUsize::new(0));
-        local.load_or(|| Dropped(dropped.clone()), Thread::current());
+        local.load_or(|| Dropped(dropped.clone()), *Thread::current());
         assert_eq!(dropped.load(Relaxed), 0);
         drop(local);
         assert_eq!(dropped.load(Relaxed), 1);
@@ -413,7 +413,7 @@ mod tests {
             let barrier = barrier.clone();
             thread::spawn(move || {
                 dbg!(i);
-                tls.load_or(|| 1, Thread::current());
+                tls.load_or(|| 1, *Thread::current());
                 barrier.wait();
             });
         }

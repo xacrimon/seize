@@ -7,9 +7,10 @@
 
 use super::{SKIP, SKIP_BUCKET};
 
-use std::cell::Cell;
+use std::cell::{Cell, UnsafeCell};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
 /// Thread ID manager which allocates thread IDs. It attempts to aggressively
@@ -44,7 +45,12 @@ impl ThreadIdManager {
 
 fn thread_id_manager() -> &'static Mutex<ThreadIdManager> {
     static THREAD_ID_MANAGER: OnceLock<Mutex<ThreadIdManager>> = OnceLock::new();
-    THREAD_ID_MANAGER.get_or_init(Default::default)
+    THREAD_ID_MANAGER.get_or_init(|| {
+        Mutex::new(ThreadIdManager {
+            free_from: 1,
+            ..Default::default()
+        })
+    })
 }
 
 /// Data which is unique to the current thread while it is running.
@@ -57,6 +63,12 @@ pub struct Thread {
 }
 
 impl Thread {
+    const NONE: Thread = Thread {
+        id: 0,
+        bucket: 0,
+        index: 0,
+    };
+
     pub(crate) fn new(id: usize) -> Thread {
         let skipped = id.checked_add(SKIP).expect("exceeded maximum length");
         let bucket = usize::BITS - skipped.leading_zeros();
@@ -73,24 +85,25 @@ impl Thread {
 
     /// Get the current thread.
     #[inline]
-    pub fn current() -> Thread {
-        THREAD.with(|thread| {
-            if let Some(thread) = thread.get() {
-                thread
-            } else {
-                Thread::init_slow(thread)
-            }
-        })
+    pub fn current() -> &'static Thread {
+        let thread = unsafe { &*THREAD.get() };
+        if thread.id == 0 {
+            return Thread::init_slow();
+        }
+
+        thread
     }
 
     /// Slow path for allocating a thread ID.
     #[cold]
     #[inline(never)]
-    fn init_slow(thread: &Cell<Option<Thread>>) -> Thread {
+    fn init_slow() -> &'static Thread {
         let new = Thread::create();
-        thread.set(Some(new));
+        unsafe {
+            ptr::write(THREAD.get(), new);
+        }
         THREAD_GUARD.with(|guard| guard.id.set(new.id));
-        new
+        unsafe { &*THREAD.get() }
     }
 
     /// Create a new thread.
@@ -112,7 +125,9 @@ impl Thread {
 // thread is initialized without having to register a thread-local destructor.
 //
 // This makes the fast path smaller.
-thread_local! { static THREAD: Cell<Option<Thread>> = const { Cell::new(None) }; }
+#[thread_local]
+static THREAD: UnsafeCell<Thread> = UnsafeCell::new(Thread::NONE);
+
 thread_local! { static THREAD_GUARD: ThreadGuard = const { ThreadGuard { id: Cell::new(0) } }; }
 
 // Guard to ensure the thread ID is released on thread exit.
@@ -128,7 +143,9 @@ impl Drop for ThreadGuard {
         // Release the thread ID. Any further accesses to the thread ID
         // will go through get_slow which will either panic or
         // initialize a new ThreadGuard.
-        let _ = THREAD.try_with(|thread| thread.set(None));
+        unsafe {
+            ptr::write(THREAD.get(), Thread::NONE);
+        }
 
         // Safety: We are in `drop` and the current thread uniquely owns this ID.
         unsafe { Thread::free(self.id.get()) };

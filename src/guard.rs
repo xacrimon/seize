@@ -106,7 +106,7 @@ pub trait Guard {
 pub struct LocalGuard<'a> {
     collector: &'a Collector,
     // The current thread.
-    thread: Thread,
+    thread: &'static Thread,
     // The reservation of the current thread.
     reservation: *const Reservation,
     // `LocalGuard` not be `Send or Sync` as we are tied to the state of the
@@ -177,7 +177,7 @@ impl Guard for LocalGuard<'_> {
         // to add the batch to any active reservations lists, including ours.
         //
         // Safety: `self.thread` is the current thread.
-        unsafe { self.collector.raw.try_retire_batch(self.thread) }
+        unsafe { self.collector.raw.try_retire_batch(*self.thread) }
     }
 
     /// Returns a numeric identifier for the current thread.
@@ -248,7 +248,7 @@ impl OwnedGuard<'_> {
         let thread = Thread::create();
 
         // Safety: We have ownership of `thread`.
-        let reservation = unsafe { collector.raw.reservation(thread) };
+        let reservation = unsafe { collector.raw.reservation(&thread) };
 
         // Safety: We have ownership of `reservation`.
         unsafe { collector.raw.enter(reservation) };
@@ -279,7 +279,7 @@ impl Guard for OwnedGuard<'_> {
         // Safety:
         // - We hold the lock and so have unique access to the batch.
         // - The validity of the pointer is guaranteed by the caller.
-        unsafe { self.collector.raw.add(ptr, reclaim, self.thread) }
+        unsafe { self.collector.raw.add(ptr, reclaim, &self.thread) }
     }
 
     /// Refreshes the guard.

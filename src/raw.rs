@@ -46,7 +46,7 @@ impl Collector {
     /// The reservation must not be accessed concurrently across multiple
     /// threads without correct synchronization.
     #[inline]
-    pub unsafe fn reservation(&self, thread: Thread) -> &Reservation {
+    pub unsafe fn reservation(&self, thread: &Thread) -> &Reservation {
         self.reservations.load_fast(thread)
     }
 
@@ -67,13 +67,14 @@ impl Collector {
             .head
             .store(ptr::null_mut(), membarrier::light_store());
 
-        // This barrier, combined with the light store above, synchronizes with the heavy
-        // barrier in `retire`:
+        // This barrier, combined with the light store above, synchronizes with the
+        // heavy barrier in `retire`:
         // - If our store comes first, the thread retiring will see that we are active.
         // - If the fence comes first, we will see the new values of any objects being
         //   retired by that thread
         //
-        // Note that all pointer loads perform a light barrier to participate in the total order.
+        // Note that all pointer loads perform a light barrier to participate in the
+        // total order.
         membarrier::light_store_barrier();
     }
 
@@ -81,8 +82,8 @@ impl Collector {
     #[inline]
     pub fn protect<T>(&self, ptr: &AtomicPtr<T>) -> *mut T {
         // We have to respect both the user provided ordering and the ordering required
-        // by the membarrier strategy. `SeqCst` is equivalent to `Acquire` on all (relevant)
-        // platforms, so we just use it unconditionally.
+        // by the membarrier strategy. `SeqCst` is equivalent to `Acquire` on all
+        // (relevant) platforms, so we just use it unconditionally.
         let value = ptr.load(Ordering::SeqCst);
 
         // The light barrier ensures that this load participates in the total order.
@@ -142,8 +143,8 @@ impl Collector {
     /// inactive threads. Additionally, this method is not safe to call
     /// concurrently with the same `thread`.
     #[inline]
-    pub unsafe fn add<T>(&self, ptr: *mut T, reclaim: unsafe fn(*mut ()), thread: Thread) {
-        let local_batch = self.batches.load(thread).get();
+    pub unsafe fn add<T>(&self, ptr: *mut T, reclaim: unsafe fn(*mut ()), thread: &Thread) {
+        let local_batch = self.batches.load_fast(thread).get();
 
         // Safety: Local batches are only accessed by the current thread.
         let batch = unsafe { (*local_batch).get_or_init(self.batch_size) };
@@ -211,8 +212,8 @@ impl Collector {
         // - If this barrier comes first, the thread will see the new values of any
         //   objects in this batch.
         //
-        // This barrier also establishes synchronizes with the light store executed when a
-        // thread is created:
+        // This barrier also establishes synchronizes with the light store executed when
+        // a thread is created:
         // - If our barrier comes first, they will see the new values of any objects in
         //   this batch.
         // - If their store comes first, we will see the new thread.
@@ -329,7 +330,8 @@ impl Collector {
             // active or they have all already decremented the reference count.
             //
             // Additionally, the local batch has been reset and we are not holding on to any
-            // mutable references, so any recursive calls to retire during reclamation are valid.
+            // mutable references, so any recursive calls to retire during reclamation are
+            // valid.
             unsafe { Collector::free_batch(batch) }
             return;
         }
@@ -525,8 +527,8 @@ impl Default for LocalBatch {
 }
 
 impl LocalBatch {
-    /// This is set during a call to `reclaim_all`, signalling recursive calls to
-    /// retire to reclaim immediately.
+    /// This is set during a call to `reclaim_all`, signalling recursive calls
+    /// to retire to reclaim immediately.
     const DROP: *mut Batch = usize::MAX as _;
 
     /// Returns a pointer to the batch, initializing the batch if it was null.
