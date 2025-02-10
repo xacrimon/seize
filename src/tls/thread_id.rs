@@ -45,12 +45,7 @@ impl ThreadIdManager {
 
 fn thread_id_manager() -> &'static Mutex<ThreadIdManager> {
     static THREAD_ID_MANAGER: OnceLock<Mutex<ThreadIdManager>> = OnceLock::new();
-    THREAD_ID_MANAGER.get_or_init(|| {
-        Mutex::new(ThreadIdManager {
-            free_from: 1,
-            ..Default::default()
-        })
-    })
+    THREAD_ID_MANAGER.get_or_init(Default::default)
 }
 
 /// Data which is unique to the current thread while it is running.
@@ -63,12 +58,6 @@ pub struct Thread {
 }
 
 impl Thread {
-    const NONE: Thread = Thread {
-        id: 0,
-        bucket: 0,
-        index: 0,
-    };
-
     pub(crate) fn new(id: usize) -> Thread {
         let skipped = id.checked_add(SKIP).expect("exceeded maximum length");
         let bucket = usize::BITS - skipped.leading_zeros();
@@ -92,11 +81,11 @@ impl Thread {
     #[inline]
     pub fn current_indirect() -> *const Thread {
         let thread = unsafe { &*THREAD.get() };
-        if thread.id == 0 {
-            return Thread::init_slow();
+        if let Some(thread) = thread {
+            return thread;
         }
 
-        thread
+        Thread::init_slow()
     }
 
     /// Slow path for allocating a thread ID.
@@ -105,10 +94,10 @@ impl Thread {
     fn init_slow() -> *const Thread {
         let new = Thread::create();
         unsafe {
-            ptr::write(THREAD.get(), new);
+            ptr::write(THREAD.get(), Some(new));
         }
         THREAD_GUARD.with(|guard| guard.id.set(new.id));
-        THREAD.get()
+        unsafe { (&*THREAD.get()).as_ref().unwrap_unchecked() }
     }
 
     /// Create a new thread.
@@ -131,7 +120,7 @@ impl Thread {
 //
 // This makes the fast path smaller.
 #[thread_local]
-static THREAD: UnsafeCell<Thread> = UnsafeCell::new(Thread::NONE);
+static THREAD: UnsafeCell<Option<Thread>> = UnsafeCell::new(None);
 
 thread_local! { static THREAD_GUARD: ThreadGuard = const { ThreadGuard { id: Cell::new(0) } }; }
 
@@ -149,7 +138,7 @@ impl Drop for ThreadGuard {
         // will go through get_slow which will either panic or
         // initialize a new ThreadGuard.
         unsafe {
-            ptr::write(THREAD.get(), Thread::NONE);
+            ptr::write(THREAD.get(), None);
         }
 
         // Safety: We are in `drop` and the current thread uniquely owns this ID.
