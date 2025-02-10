@@ -47,7 +47,7 @@ impl Collector {
     /// threads without correct synchronization.
     #[inline]
     pub unsafe fn reservation(&self, thread: Thread) -> &Reservation {
-        self.reservations.load(thread)
+        self.reservations.load_fast(thread)
     }
 
     /// Mark the current thread as active.

@@ -56,6 +56,40 @@ where
         }
     }
 
+    #[inline]
+    pub fn load_fast(&self, thread: Thread) -> &T
+    where
+        T: Default,
+    {
+        #[cold]
+        #[inline(never)]
+        fn fallback<T>(thread_local: &ThreadLocal<T>, thread: Thread) -> &T
+        where
+            T: Send + Default,
+        {
+            thread_local.load_or(T::default, thread)
+        }
+
+        let bucket = unsafe { self.buckets.get_unchecked(thread.bucket) };
+        let bucket_ptr = bucket.load(Ordering::Relaxed);
+
+        if bucket_ptr.is_null() {
+            return fallback(self, thread);
+        }
+
+        unsafe {
+            let entry = &*bucket_ptr.add(thread.index);
+
+            // Relaxed: Only the current thread can set the value.
+            if !entry.present.load(Ordering::Relaxed) {
+                return fallback(self, thread);
+            }
+
+            // Safety: The entry was initialized above.
+            (*entry.value.get()).assume_init_ref()
+        }
+    }
+
     /// Load the slot for the given `thread`, initializing it with a default
     /// value if necessary.
     #[inline]
