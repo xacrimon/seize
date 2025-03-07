@@ -410,7 +410,7 @@ mod macos {
             'claim_responsibility: loop {
                 let (ref mut claimed, completed) = *guard;
                 match skip_after {
-                    Some(ref skip_after) if completed >= *skip_after => return,
+                    Some(ref skip_after) if completed > *skip_after => return,
                     _ => (),
                 }
 
@@ -420,7 +420,7 @@ mod macos {
                 }
 
                 if skip_after.is_none() {
-                    skip_after = Some(completed + 1);
+                    skip_after = Some(completed);
                 }
                 guard = WAKER.wait(guard).unwrap();
             }
