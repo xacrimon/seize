@@ -23,19 +23,16 @@ pub use linux::*;
 #[cfg(all(target_os = "windows", feature = "fast-barrier", not(miri)))]
 pub use windows::*;
 
-#[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
-pub use macos::*;
-
 #[cfg(any(
     not(feature = "fast-barrier"),
-    not(any(target_os = "windows", target_os = "linux", target_os = "macos")),
+    not(any(target_os = "windows", target_os = "linux")),
     miri
 ))]
 pub use default::*;
 
 #[cfg(any(
     not(feature = "fast-barrier"),
-    not(any(target_os = "windows", target_os = "linux", target_os = "macos")),
+    not(any(target_os = "windows", target_os = "linux")),
     miri
 ))]
 mod default {
@@ -364,146 +361,5 @@ mod windows {
     pub fn heavy() {
         // Invoke the `FlushProcessWriteBuffers()` system call.
         unsafe { windows_sys::Win32::System::Threading::FlushProcessWriteBuffers() }
-    }
-}
-
-#[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
-mod macos {
-    use std::sync::{Condvar, Mutex};
-    use std::{
-        sync::{
-            atomic::{self, Ordering},
-            LazyLock,
-        },
-        time,
-    };
-
-    use crate::guard;
-
-    extern "C" {
-        fn WEAK_MEMORY_BEGONE();
-    }
-
-    pub fn detect() {}
-
-    #[inline]
-    pub fn light_store() -> Ordering {
-        Ordering::Relaxed
-    }
-
-    #[inline]
-    pub fn light_barrier() {
-        atomic::compiler_fence(Ordering::SeqCst);
-    }
-
-    #[inline]
-    pub fn light_load() -> Ordering {
-        Ordering::Relaxed
-    }
-
-    #[inline]
-    pub fn light_refresh() -> Ordering {
-        Ordering::Relaxed
-    }
-
-    struct Tracker {
-        concurrent: u64,
-        waiting: u64,
-        completed: u64,
-        claimed: u64,
-    }
-
-    impl Tracker {
-        fn new() -> Self {
-            Self {
-                concurrent: 0,
-                waiting: 0,
-                completed: 0,
-                claimed: 0,
-            }
-        }
-
-        fn claim(&mut self) -> Option<u64> {
-            fn concurrency(waiting: u64) -> u64 {
-                if waiting <= 2 {
-                    1
-                } else if waiting <= 5 {
-                    2
-                } else {
-                    2 + waiting / 4
-                }
-            }
-
-            let concurrency = concurrency(self.waiting);
-
-            if self.concurrent < concurrency {
-                self.concurrent += 1;
-                self.claimed += 1;
-                Some(self.claimed)
-            } else {
-                None
-            }
-        }
-
-        fn complete(&mut self, slot: u64) {
-            self.concurrent -= 1;
-            self.completed = std::cmp::max(self.completed, slot);
-        }
-
-        fn wait_until_after(&self) -> u64 {
-            self.completed
-        }
-
-        fn wait_enter(&mut self) {
-            self.waiting += 1;
-        }
-
-        fn wait_exit(&mut self) {
-            self.waiting -= 1;
-        }
-
-        fn is_done_waiting(&self, until_after: u64) -> bool {
-            self.completed > until_after
-        }
-    }
-
-    #[inline]
-    pub fn heavy() {
-        static SERIALIZER: LazyLock<Mutex<Tracker>> = LazyLock::new(|| Mutex::new(Tracker::new()));
-        static WAKER: Condvar = Condvar::new();
-        let got_slot;
-
-        {
-            let mut skip_after = None;
-            let mut guard = SERIALIZER.lock().unwrap();
-
-            'claim_responsibility: loop {
-                if let Some(until_after) = skip_after
-                    && guard.is_done_waiting(until_after)
-                {
-                    return;
-                }
-
-                if let Some(slot) = guard.claim() {
-                    got_slot = Some(slot);
-                    break 'claim_responsibility;
-                }
-
-                if skip_after.is_none() {
-                    skip_after = Some(guard.wait_until_after());
-                }
-
-                guard.wait_enter();
-                guard = WAKER.wait(guard).unwrap();
-                guard.wait_exit();
-            }
-        }
-
-        unsafe {
-            WEAK_MEMORY_BEGONE();
-        }
-        let mut guard = SERIALIZER.lock().unwrap();
-        guard.complete(got_slot.unwrap());
-        WAKER.notify_all();
     }
 }
