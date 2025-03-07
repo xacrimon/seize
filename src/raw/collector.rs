@@ -93,7 +93,7 @@ impl Collector {
     /// Strengthens an ordering to that necessary to protect the load of a
     /// pointer.
     #[inline]
-    pub fn protect(_order: Ordering) -> Ordering {
+    pub fn protect(mut order: Ordering) -> Ordering {
         // We have to respect both the user provided ordering and the ordering required
         // by the membarrier strategy. `SeqCst` is equivalent to `Acquire` on
         // most platforms, so we just use it unconditionally.
@@ -101,7 +101,17 @@ impl Collector {
         // Loads performed with this ordering, paired with the light barrier in `enter`,
         // will participate in the total order established by `enter`, and thus see the
         // new values of any pointers that were retired when the thread was inactive.
-        Ordering::SeqCst
+        //Ordering::SeqCst
+
+        if order == Ordering::Acquire {
+            order = Ordering::Relaxed;
+        }
+
+        if order != Ordering::SeqCst {
+            membarrier::light_barrier();
+        }
+
+        order
     }
 
     /// Mark the current thread as inactive.
