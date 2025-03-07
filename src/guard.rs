@@ -357,6 +357,7 @@ impl<'a> OwnedGuard<'a> {
         }
     }
 
+    #[inline]
     pub fn as_mut<'b>(&'b mut self) -> OwnedGuardMut<'a, 'b> {
         OwnedGuardMut::new(self)
     }

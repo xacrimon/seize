@@ -68,6 +68,11 @@ mod default {
         Ordering::SeqCst
     }
 
+    #[inline]
+    pub fn light_refresh() -> Ordering {
+        Ordering::SeqCst
+    }
+
     /// Issues a heavy memory barrier for slow path that synchronizes with light
     /// stores.
     #[inline]
@@ -385,7 +390,12 @@ mod macos {
 
     #[inline]
     pub fn light_load() -> Ordering {
-        Ordering::SeqCst
+        Ordering::Relaxed
+    }
+
+    #[inline]
+    pub fn light_refresh() -> Ordering {
+        Ordering::Relaxed
     }
 
     #[inline]

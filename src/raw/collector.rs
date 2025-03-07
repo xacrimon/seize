@@ -3,9 +3,9 @@ use super::tls::{Thread, ThreadLocal};
 use super::utils::CachePadded;
 
 use std::cell::{Cell, UnsafeCell};
-use std::ptr;
 use std::sync::atomic::{self, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::{hint, ptr};
 
 /// Fast and efficient concurrent memory reclamation.
 ///
@@ -115,15 +115,14 @@ impl Collector {
     pub unsafe fn leave(&self, reservation: &Reservation) {
         // Release: Exit the critical section, ensuring that any pointer accesses
         // happen-before we are marked as inactive.
-        let head = reservation.head.swap(Entry::INACTIVE, Ordering::Release);
+        membarrier::light_barrier();
+        let head = reservation
+            .head
+            .swap(Entry::INACTIVE, membarrier::light_store());
 
         if head != Entry::INACTIVE {
-            // Acquire any new entries in the reservation list, as well as the new values of
-            // any objects that were retired while we were active.
-            atomic::fence(Ordering::Acquire);
-
             // Decrement the reference counts of any batches that were retired.
-            unsafe { self.traverse(head) }
+            unsafe { self.traverse_fast(head) }
         }
     }
 
@@ -137,11 +136,14 @@ impl Collector {
     #[inline]
     pub unsafe fn refresh(&self, reservation: &Reservation) {
         // SeqCst: Establish the ordering of a combined call to `leave` and `enter`.
-        let head = reservation.head.swap(ptr::null_mut(), Ordering::SeqCst);
+        membarrier::light_barrier();
+        let head = reservation
+            .head
+            .swap(ptr::null_mut(), membarrier::light_refresh());
 
         if head != Entry::INACTIVE {
             // Decrement the reference counts of any batches that were retired.
-            unsafe { self.traverse(head) }
+            unsafe { self.traverse_fast(head) }
         }
     }
 
@@ -174,11 +176,8 @@ impl Collector {
 
         // If we are in a recursive call during `drop` or `reclaim_all`, reclaim the
         // object immediately.
-        if batch == LocalBatch::DROP {
-            // Safety: `LocalBatch::DROP` means we have unique access to the collector.
-            // Additionally, the caller guarantees that the pointer is valid for the
-            // provided reclaimer.
-            unsafe { reclaim(ptr, crate::Collector::from_raw(self)) }
+        if hint::unlikely(batch == LocalBatch::DROP) {
+            self.add_recursive(ptr, reclaim);
             return;
         }
 
@@ -189,14 +188,17 @@ impl Collector {
         // Safety: The caller guarantees we have unique access to the batch.
         let len = unsafe {
             // Create an entry for this node.
-            (*batch).entries.push(Entry {
-                batch,
-                reclaim,
-                ptr: ptr.cast::<()>(),
-                state: EntryState {
-                    head: ptr::null_mut(),
-                },
-            });
+            (*batch)
+                .entries
+                .push_within_capacity(Entry {
+                    batch,
+                    reclaim,
+                    ptr: ptr.cast::<()>(),
+                    state: EntryState {
+                        head: ptr::null_mut(),
+                    },
+                })
+                .unwrap_unchecked();
 
             (*batch).entries.len()
         };
@@ -207,6 +209,15 @@ impl Collector {
             // are not holding on to any mutable references.
             unsafe { self.try_retire(local_batch) }
         }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn add_recursive<T>(&self, ptr: *mut T, reclaim: unsafe fn(*mut T, &crate::Collector)) {
+        // Safety: `LocalBatch::DROP` means we have unique access to the collector.
+        // Additionally, the caller guarantees that the pointer is valid for the
+        // provided reclaimer.
+        unsafe { reclaim(ptr, crate::Collector::from_raw(self)) }
     }
 
     /// Attempt to retire objects in the current thread's batch.
@@ -234,7 +245,8 @@ impl Collector {
     /// Additionally, the caller should not be holding on to any mutable
     /// references the the local batch, as they may be invalidated by
     /// recursive calls to `try_retire`.
-    #[inline]
+    #[cold]
+    #[inline(never)]
     pub unsafe fn try_retire(&self, local_batch: *mut LocalBatch) {
         // Establish a total order between the retirement of nodes in this batch and
         // light stores marking a thread as active:
@@ -377,6 +389,17 @@ impl Collector {
         }
     }
 
+    #[inline]
+    unsafe fn traverse_fast(&self, list: *mut Entry) {
+        if hint::likely(list.is_null()) {
+            return;
+        }
+
+        unsafe {
+            self.traverse(list);
+        }
+    }
+
     /// Traverse the reservation list, decrementing the reference count of each
     /// batch.
     ///
@@ -386,6 +409,10 @@ impl Collector {
     #[cold]
     #[inline(never)]
     unsafe fn traverse(&self, mut list: *mut Entry) {
+        // Acquire any new entries in the reservation list, as well as the new values of
+        // any objects that were retired while we were active.
+        atomic::fence(Ordering::Acquire);
+
         while !list.is_null() {
             let curr = list;
 
@@ -588,9 +615,16 @@ impl LocalBatch {
     #[inline]
     fn get_or_init(&mut self, capacity: usize) -> *mut Batch {
         if self.batch.is_null() {
-            self.batch = Box::into_raw(Box::new(Batch::new(capacity)));
+            return self.init_slow(capacity);
         }
 
+        self.batch
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn init_slow(&mut self, capacity: usize) -> *mut Batch {
+        self.batch = Box::into_raw(Box::new(Batch::new(capacity)));
         self.batch
     }
 
