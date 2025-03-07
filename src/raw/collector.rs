@@ -177,7 +177,10 @@ impl Collector {
         // If we are in a recursive call during `drop` or `reclaim_all`, reclaim the
         // object immediately.
         if hint::unlikely(batch == LocalBatch::DROP) {
-            self.add_recursive(ptr, reclaim);
+            unsafe {
+                self.add_recursive(ptr, reclaim);
+            }
+
             return;
         }
 
@@ -188,17 +191,21 @@ impl Collector {
         // Safety: The caller guarantees we have unique access to the batch.
         let len = unsafe {
             // Create an entry for this node.
-            (*batch)
-                .entries
-                .push_within_capacity(Entry {
-                    batch,
-                    reclaim,
-                    ptr: ptr.cast::<()>(),
-                    state: EntryState {
-                        head: ptr::null_mut(),
-                    },
-                })
-                .unwrap_unchecked();
+            if (*batch).entries.capacity() <= (*batch).entries.len() {
+                (*batch)
+                    .entries
+                    .push_within_capacity(Entry {
+                        batch,
+                        reclaim,
+                        ptr: ptr.cast::<()>(),
+                        state: EntryState {
+                            head: ptr::null_mut(),
+                        },
+                    })
+                    .unwrap_or_else(|_| panic!("oops"));
+            } else {
+                self.push_batch_entry_no_free_capacity(batch, ptr, reclaim);
+            }
 
             (*batch).entries.len()
         };
@@ -213,11 +220,31 @@ impl Collector {
 
     #[cold]
     #[inline(never)]
-    fn add_recursive<T>(&self, ptr: *mut T, reclaim: unsafe fn(*mut T, &crate::Collector)) {
+    unsafe fn add_recursive<T>(&self, ptr: *mut T, reclaim: unsafe fn(*mut T, &crate::Collector)) {
         // Safety: `LocalBatch::DROP` means we have unique access to the collector.
         // Additionally, the caller guarantees that the pointer is valid for the
         // provided reclaimer.
         unsafe { reclaim(ptr, crate::Collector::from_raw(self)) }
+    }
+
+    #[cold]
+    #[inline(never)]
+    unsafe fn push_batch_entry_no_free_capacity<T>(
+        &self,
+        batch: *mut Batch,
+        ptr: *mut T,
+        reclaim: unsafe fn(*mut (), &crate::Collector),
+    ) {
+        unsafe {
+            (*batch).entries.push(Entry {
+                batch,
+                reclaim,
+                ptr: ptr.cast::<()>(),
+                state: EntryState {
+                    head: ptr::null_mut(),
+                },
+            });
+        }
     }
 
     /// Attempt to retire objects in the current thread's batch.

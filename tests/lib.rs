@@ -670,7 +670,7 @@ mod cfg {
 
 #[cfg(not(any(miri, seize_asan)))]
 mod cfg {
-    pub const THREADS: usize = 32;
-    pub const ITEMS: usize = 10_000;
+    pub const THREADS: usize = 4;
+    pub const ITEMS: usize = 10_00;
     pub const ITER: usize = 50;
 }

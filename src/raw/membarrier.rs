@@ -400,8 +400,9 @@ mod macos {
 
     #[inline]
     pub fn heavy() {
-        static SERIALIZER: Mutex<(bool, u64)> = Mutex::new((false, 0));
+        static SERIALIZER: Mutex<(u64, u64)> = Mutex::new((0, 0));
         static WAKER: Condvar = Condvar::new();
+        const CONCURRENCY: u64 = 2;
 
         {
             let mut skip_after = None;
@@ -414,8 +415,8 @@ mod macos {
                     _ => (),
                 }
 
-                if !*claimed {
-                    *claimed = true;
+                if *claimed < CONCURRENCY {
+                    *claimed += 1;
                     break 'claim_responsibility;
                 }
 
@@ -432,7 +433,7 @@ mod macos {
         let mut guard = SERIALIZER.lock().unwrap();
         let (ref mut claimed, ref mut completed) = *guard;
         *completed += 1;
-        *claimed = false;
+        *claimed -= 1;
         WAKER.notify_all();
     }
 }
