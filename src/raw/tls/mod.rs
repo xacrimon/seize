@@ -92,9 +92,9 @@ impl<T> ThreadLocal<T> {
         #[cold]
         fn fallback<'a, T>(thread_local: &'a ThreadLocal<T>, thread: &Thread) -> &'a T
         where
-        T: Default,
+            T: Default,
         {
-            unsafe {thread_local.load_or(T::default, *thread)}
+            unsafe { thread_local.load_or(T::default, *thread) }
         }
 
         let bucket = unsafe { self.buckets.get_unchecked(thread.bucket) };

@@ -8,8 +8,8 @@
 use std::cell::{Cell, UnsafeCell};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::sync::{Mutex, OnceLock};
 use std::ptr;
+use std::sync::{Mutex, OnceLock};
 
 /// An allocator for thread IDs.
 ///

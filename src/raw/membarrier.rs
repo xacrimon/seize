@@ -23,7 +23,6 @@ pub use linux::*;
 #[cfg(all(target_os = "windows", feature = "fast-barrier", not(miri)))]
 pub use windows::*;
 
-
 #[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
 pub use macos::*;
 

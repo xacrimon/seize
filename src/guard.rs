@@ -160,7 +160,7 @@ pub struct LocalGuard<'a> {
 impl LocalGuard<'_> {
     #[inline]
     pub(crate) fn enter(collector: &Collector) -> LocalGuard<'_> {
-        let thread = unsafe {&*Thread::current_indirect()};
+        let thread = unsafe { &*Thread::current_indirect() };
 
         // Safety: `thread` is the current thread.
         let reservation = unsafe { collector.raw.reservation(thread) };
@@ -278,7 +278,12 @@ impl<'a, 'b> Guard for OwnedGuardMut<'a, 'b> {
 
     #[inline]
     fn flush(&self) {
-        unsafe { self.inner.collector.raw.try_retire_batch(&self.inner.thread) }
+        unsafe {
+            self.inner
+                .collector
+                .raw
+                .try_retire_batch(&self.inner.thread)
+        }
     }
 
     #[inline]
@@ -293,7 +298,12 @@ impl<'a, 'b> Guard for OwnedGuardMut<'a, 'b> {
 
     #[inline]
     unsafe fn defer_retire<T>(&self, ptr: *mut T, reclaim: unsafe fn(*mut T, &Collector)) {
-        unsafe { self.inner.collector.raw.add(ptr, reclaim, &self.inner.thread) }
+        unsafe {
+            self.inner
+                .collector
+                .raw
+                .add(ptr, reclaim, &self.inner.thread)
+        }
     }
 }
 
