@@ -400,22 +400,31 @@ mod macos {
 
     #[inline]
     pub fn heavy() {
-        static SERIALIZER: Mutex<(u64, u64)> = Mutex::new((0, 0));
+        static SERIALIZER: Mutex<(u64, u64, u64)> = Mutex::new((0, 0, 0));
         static WAKER: Condvar = Condvar::new();
-        const CONCURRENCY: u64 = 2;
+
+        fn concurrency(waiting: u64) -> u64 {
+            if waiting <= 2 {
+                1
+            } else if waiting <= 5 {
+                2
+            } else {
+                1 + waiting / 4
+            }
+        }
 
         {
             let mut skip_after = None;
             let mut guard = SERIALIZER.lock().unwrap();
 
             'claim_responsibility: loop {
-                let (ref mut claimed, completed) = *guard;
+                let (ref mut claimed, ref mut waiting, completed) = *guard;
                 match skip_after {
                     Some(ref skip_after) if completed > *skip_after => return,
                     _ => (),
                 }
 
-                if *claimed < CONCURRENCY {
+                if *claimed < concurrency(*waiting) {
                     *claimed += 1;
                     break 'claim_responsibility;
                 }
@@ -423,7 +432,11 @@ mod macos {
                 if skip_after.is_none() {
                     skip_after = Some(completed);
                 }
+
+                *waiting += 1;
                 guard = WAKER.wait(guard).unwrap();
+                let (_, ref mut waiting, _) = *guard;
+                *waiting -= 1;
             }
         }
 
@@ -431,7 +444,7 @@ mod macos {
             WEAK_MEMORY_BEGONE();
         }
         let mut guard = SERIALIZER.lock().unwrap();
-        let (ref mut claimed, ref mut completed) = *guard;
+        let (ref mut claimed, ref mut _waiting, ref mut completed) = *guard;
         *completed += 1;
         *claimed -= 1;
         WAKER.notify_all();
