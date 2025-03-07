@@ -205,7 +205,7 @@ impl Collector {
         // Note that `add` doesn't ever actually reclaim the pointer immediately if
         // the current thread is active. Instead, it adds it to the current thread's
         // reclamation list, but we don't guarantee that publicly.
-        unsafe { self.raw.add(ptr, reclaim, Thread::current()) }
+        unsafe { self.raw.add(ptr, reclaim, &*Thread::current_indirect()) }
     }
 
     /// Reclaim any values that have been retired.
@@ -236,6 +236,10 @@ impl Collector {
     // Create a reference to `Collector` from an underlying `raw::Collector`.
     pub(crate) fn from_raw(raw: &raw::Collector) -> &Collector {
         unsafe { &*(raw as *const raw::Collector as *const Collector) }
+    }
+
+    pub fn duplicate(&self) -> Self {
+        Self::new().batch_size(self.raw.batch_size)
     }
 }
 

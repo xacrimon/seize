@@ -23,16 +23,20 @@ pub use linux::*;
 #[cfg(all(target_os = "windows", feature = "fast-barrier", not(miri)))]
 pub use windows::*;
 
+
+#[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
+pub use macos::*;
+
 #[cfg(any(
     not(feature = "fast-barrier"),
-    not(any(target_os = "windows", target_os = "linux")),
+    not(any(target_os = "windows", target_os = "linux", target_os = "macos")),
     miri
 ))]
 pub use default::*;
 
 #[cfg(any(
     not(feature = "fast-barrier"),
-    not(any(target_os = "windows", target_os = "linux")),
+    not(any(target_os = "windows", target_os = "linux", target_os = "macos")),
     miri
 ))]
 mod default {
@@ -356,5 +360,70 @@ mod windows {
     pub fn heavy() {
         // Invoke the `FlushProcessWriteBuffers()` system call.
         unsafe { windows_sys::Win32::System::Threading::FlushProcessWriteBuffers() }
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
+mod macos {
+    use core::sync::atomic::{self, Ordering};
+    use std::sync::{Condvar, Mutex};
+
+    extern "C" {
+        fn WEAK_MEMORY_BEGONE();
+    }
+
+    pub fn detect() {}
+
+    #[inline]
+    pub fn light_store() -> Ordering {
+        Ordering::Relaxed
+    }
+
+    #[inline]
+    pub fn light_barrier() {
+        atomic::compiler_fence(Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn light_load() -> Ordering {
+        Ordering::SeqCst
+    }
+
+    #[inline]
+    pub fn heavy() {
+        static SERIALIZER: Mutex<(bool, u64)> = Mutex::new((false, 0));
+        static WAKER: Condvar = Condvar::new();
+
+        {
+            let mut skip_after = None;
+            let mut guard = SERIALIZER.lock().unwrap();
+
+            'claim_responsibility: loop {
+                let (ref mut claimed, completed) = *guard;
+                match skip_after {
+                    Some(ref skip_after) if completed >= *skip_after => return,
+                    _ => (),
+                }
+
+                if !*claimed {
+                    *claimed = true;
+                    break 'claim_responsibility;
+                }
+
+                if skip_after.is_none() {
+                    skip_after = Some(completed + 1);
+                }
+                guard = WAKER.wait(guard).unwrap();
+            }
+        }
+
+        unsafe {
+            WEAK_MEMORY_BEGONE();
+        }
+        let mut guard = SERIALIZER.lock().unwrap();
+        let (ref mut claimed, ref mut completed) = *guard;
+        *completed += 1;
+        *claimed = false;
+        WAKER.notify_all();
     }
 }

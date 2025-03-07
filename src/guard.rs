@@ -147,7 +147,7 @@ pub struct LocalGuard<'a> {
     collector: &'a Collector,
 
     // The current thread.
-    thread: Thread,
+    thread: *const Thread,
 
     // The reservation for the current thread.
     reservation: *const Reservation,
@@ -160,7 +160,7 @@ pub struct LocalGuard<'a> {
 impl LocalGuard<'_> {
     #[inline]
     pub(crate) fn enter(collector: &Collector) -> LocalGuard<'_> {
-        let thread = Thread::current();
+        let thread = unsafe {&*Thread::current_indirect()};
 
         // Safety: `thread` is the current thread.
         let reservation = unsafe { collector.raw.reservation(thread) };
@@ -181,6 +181,11 @@ impl LocalGuard<'_> {
             collector,
             _unsend: PhantomData,
         }
+    }
+
+    #[inline]
+    fn thread(&self) -> &Thread {
+        unsafe { &*self.thread }
     }
 }
 
@@ -205,7 +210,7 @@ impl Guard for LocalGuard<'_> {
         // the batch to any active reservations lists, including ours.
         //
         // Safety: `self.thread` is the current thread.
-        unsafe { self.collector.raw.try_retire_batch(self.thread) }
+        unsafe { self.collector.raw.try_retire_batch(self.thread()) }
     }
 
     /// Returns the collector this guard was created from.
@@ -217,7 +222,7 @@ impl Guard for LocalGuard<'_> {
     /// Returns a numeric identifier for the current thread.
     #[inline]
     fn thread_id(&self) -> usize {
-        self.thread.id
+        self.thread().id
     }
 
     /// Retires a value, running `reclaim` when no threads hold a reference to
@@ -227,7 +232,7 @@ impl Guard for LocalGuard<'_> {
         // Safety:
         // - `self.thread` is the current thread.
         // - The validity of the pointer is guaranteed by the caller.
-        unsafe { self.collector.raw.add(ptr, reclaim, self.thread) }
+        unsafe { self.collector.raw.add(ptr, reclaim, &*self.thread) }
     }
 }
 
@@ -292,7 +297,7 @@ impl OwnedGuard<'_> {
         let thread = Thread::create();
 
         // Safety: We have ownership of `thread` and have not shared it.
-        let reservation = unsafe { collector.raw.reservation(thread) };
+        let reservation = unsafe { collector.raw.reservation(&thread) };
 
         // Safety: We have ownership of `reservation`.
         unsafe { collector.raw.enter(reservation) };
@@ -324,7 +329,7 @@ impl Guard for OwnedGuard<'_> {
         // the batch to any active reservations lists, including ours.
         //
         // Safety: We hold the lock and so have unique access to the batch.
-        unsafe { self.collector.raw.try_retire_batch(self.thread) }
+        unsafe { self.collector.raw.try_retire_batch(&self.thread) }
     }
 
     /// Returns the collector this guard was created from.
@@ -354,7 +359,7 @@ impl Guard for OwnedGuard<'_> {
         // Safety:
         // - We hold the lock and so have unique access to the batch.
         // - The validity of the pointer is guaranteed by the caller.
-        unsafe { self.collector.raw.add(ptr, reclaim, self.thread) }
+        unsafe { self.collector.raw.add(ptr, reclaim, &self.thread) }
     }
 }
 
