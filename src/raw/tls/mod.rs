@@ -84,6 +84,35 @@ impl<T> ThreadLocal<T> {
         unsafe { self.load_or(T::default, thread) }
     }
 
+    #[inline]
+    pub unsafe fn load_fast(&self, thread: &Thread) -> &T
+    where
+        T: Default,
+    {
+        #[inline(never)]
+        #[cold]
+        fn fallback<'a, T>(thread_local: &'a ThreadLocal<T>, thread: &Thread) -> &'a T
+        where
+            T: Default,
+        {
+            unsafe { thread_local.load_or(T::default, *thread) }
+        }
+
+        let bucket = unsafe { self.buckets.get_unchecked(thread.bucket) };
+        let bucket_ptr = bucket.load(Ordering::Relaxed);
+
+        if bucket_ptr.is_null() {
+            return fallback(self, &thread);
+        }
+
+        let entry = unsafe { &*bucket_ptr.add(thread.entry) };
+        if !entry.present.load(Ordering::Relaxed) {
+            return fallback(self, &thread);
+        }
+
+        unsafe { (*entry.value.get()).assume_init_ref() }
+    }
+
     /// Load the entry for the given `thread`, initializing it using the
     /// provided function if necessary.
     ///
