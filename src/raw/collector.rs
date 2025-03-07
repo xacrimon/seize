@@ -59,7 +59,7 @@ impl Collector {
     #[inline]
     pub unsafe fn reservation(&self, thread: &Thread) -> &Reservation {
         // Safety: Guaranteed by caller.
-        unsafe { self.reservations.load_fast(thread) }
+        unsafe { self.reservations.load(thread) }
     }
 
     /// Mark the current thread as active.
@@ -169,7 +169,7 @@ impl Collector {
         thread: &Thread,
     ) {
         // Safety: The caller guarantees we have unique access to the batch.
-        let local_batch = unsafe { self.batches.load_fast(thread).get() };
+        let local_batch = unsafe { self.batches.load(thread).get() };
 
         // Safety: The caller guarantees we have unique access to the batch.
         let batch = unsafe { (*local_batch).get_or_init(self.batch_size) };
@@ -244,7 +244,7 @@ impl Collector {
     #[inline]
     pub unsafe fn try_retire_batch(&self, thread: &Thread) {
         // Safety: Guaranteed by caller.
-        unsafe { self.try_retire(self.batches.load_fast(thread).get()) }
+        unsafe { self.try_retire(self.batches.load(thread).get()) }
     }
 
     /// Attempt to retire objects in this batch.

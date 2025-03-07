@@ -237,10 +237,6 @@ impl Collector {
     pub(crate) fn from_raw(raw: &raw::Collector) -> &Collector {
         unsafe { &*(raw as *const raw::Collector as *const Collector) }
     }
-
-    pub fn duplicate(&self) -> Self {
-        Self::new().batch_size(self.raw.batch_size)
-    }
 }
 
 impl Eq for Collector {}

@@ -76,19 +76,12 @@ impl<T> ThreadLocal<T> {
     /// The current thread must have unique access to the slot for the provided
     /// `thread`.
     #[inline]
-    pub unsafe fn load(&self, thread: Thread) -> &T
+    pub unsafe fn load(&self, thread: &Thread) -> &T
     where
         T: Default,
     {
-        // Safety: Guaranteed by caller.
-        unsafe { self.load_or(T::default, thread) }
-    }
-
-    #[inline]
-    pub unsafe fn load_fast(&self, thread: &Thread) -> &T
-    where
-        T: Default,
-    {
+        // Intentionally designed to match the signature of the parent fn.
+        // This encourages tail call opts to reduce inline code size.
         #[inline(never)]
         #[cold]
         fn fallback<'a, T>(thread_local: &'a ThreadLocal<T>, thread: &Thread) -> &'a T
