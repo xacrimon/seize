@@ -3,9 +3,9 @@ use super::tls::{Thread, ThreadLocal};
 use super::utils::CachePadded;
 
 use std::cell::{Cell, UnsafeCell};
+use std::ptr;
 use std::sync::atomic::{self, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::{hint, ptr};
 
 /// Fast and efficient concurrent memory reclamation.
 ///
@@ -176,7 +176,7 @@ impl Collector {
 
         // If we are in a recursive call during `drop` or `reclaim_all`, reclaim the
         // object immediately.
-        if hint::unlikely(batch == LocalBatch::DROP) {
+        if batch == LocalBatch::DROP {
             unsafe {
                 self.add_recursive(ptr, reclaim);
             }
@@ -191,21 +191,21 @@ impl Collector {
         // Safety: The caller guarantees we have unique access to the batch.
         let len = unsafe {
             // Create an entry for this node.
-            if (*batch).entries.capacity() <= (*batch).entries.len() {
-                (*batch)
-                    .entries
-                    .push_within_capacity(Entry {
-                        batch,
-                        reclaim,
-                        ptr: ptr.cast::<()>(),
-                        state: EntryState {
-                            head: ptr::null_mut(),
-                        },
-                    })
-                    .unwrap_or_else(|_| panic!("oops"));
-            } else {
-                self.push_batch_entry_no_free_capacity(batch, ptr, reclaim);
+            if (*batch).entries.capacity() == (*batch).entries.len() {
+                self.batch_grow(batch);
             }
+
+            (*batch)
+                .entries
+                .push_within_capacity(Entry {
+                    batch,
+                    reclaim,
+                    ptr: ptr.cast::<()>(),
+                    state: EntryState {
+                        head: ptr::null_mut(),
+                    },
+                })
+                .unwrap_unchecked();
 
             (*batch).entries.len()
         };
@@ -229,21 +229,9 @@ impl Collector {
 
     #[cold]
     #[inline(never)]
-    unsafe fn push_batch_entry_no_free_capacity<T>(
-        &self,
-        batch: *mut Batch,
-        ptr: *mut T,
-        reclaim: unsafe fn(*mut (), &crate::Collector),
-    ) {
+    unsafe fn batch_grow(&self, batch: *mut Batch) {
         unsafe {
-            (*batch).entries.push(Entry {
-                batch,
-                reclaim,
-                ptr: ptr.cast::<()>(),
-                state: EntryState {
-                    head: ptr::null_mut(),
-                },
-            });
+            (*batch).entries.reserve(1);
         }
     }
 
@@ -418,7 +406,7 @@ impl Collector {
 
     #[inline]
     unsafe fn traverse_fast(&self, list: *mut Entry) {
-        if hint::likely(list.is_null()) {
+        if list.is_null() {
             return;
         }
 

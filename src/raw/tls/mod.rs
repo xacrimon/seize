@@ -10,7 +10,7 @@ mod thread_id;
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{self, AtomicBool, AtomicPtr, Ordering};
-use std::{hint, mem, ptr};
+use std::{mem, ptr};
 
 pub use thread_id::Thread;
 
@@ -101,12 +101,12 @@ impl<T> ThreadLocal<T> {
         let bucket = unsafe { self.buckets.get_unchecked(thread.bucket) };
         let bucket_ptr = bucket.load(Ordering::Relaxed);
 
-        if hint::unlikely(bucket_ptr.is_null()) {
+        if bucket_ptr.is_null() {
             return fallback(self, &thread);
         }
 
         let entry = unsafe { &*bucket_ptr.add(thread.entry) };
-        if hint::unlikely(!entry.present.load(Ordering::Relaxed)) {
+        if !entry.present.load(Ordering::Relaxed) {
             return fallback(self, &thread);
         }
 
