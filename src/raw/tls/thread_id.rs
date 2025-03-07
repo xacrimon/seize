@@ -5,7 +5,9 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::cell::{Cell, UnsafeCell};
+use std::cell::Cell;
+#[cfg(feature = "raw-tls")]
+use std::cell::UnsafeCell;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::ptr;
@@ -124,9 +126,15 @@ impl Thread {
 
     #[inline]
     pub fn current_indirect() -> *const Thread {
+        #[cfg(feature = "raw-tls")]
         let thread = unsafe { &*THREAD.get() };
-        if let Some(thread) = thread {
-            return thread;
+        #[cfg(not(feature = "raw-tls"))]
+        let thread = THREAD.with(|thread| thread.get());
+        #[allow(unused_unsafe)]
+        unsafe {
+            if let Some(thread) = thread.as_ref() {
+                return thread;
+            }
         }
 
         Thread::init_slow()
@@ -137,11 +145,21 @@ impl Thread {
     #[inline(never)]
     fn init_slow() -> *const Thread {
         let new = Thread::create();
+        #[cfg(feature = "raw-tls")]
         unsafe {
             ptr::write(THREAD.get(), Some(new));
         }
+        #[cfg(not(feature = "raw-tls"))]
+        THREAD.with(|thread| thread.set(&new));
         THREAD_GUARD.with(|guard| guard.id.set(new.id));
-        unsafe { (&*THREAD.get()).as_ref().unwrap_unchecked() }
+        #[cfg(feature = "raw-tls")]
+        unsafe {
+            (&*THREAD.get()).as_ref().unwrap_unchecked()
+        }
+        #[cfg(not(feature = "raw-tls"))]
+        unsafe {
+            &*THREAD.get()
+        }
     }
 
     /// Create a new thread.
@@ -163,8 +181,11 @@ impl Thread {
 // thread is initialized without having to register a thread-local destructor.
 //
 // This makes the fast path smaller.
+#[cfg(feature = "raw-tls")]
 #[thread_local]
 static THREAD: UnsafeCell<Option<Thread>> = UnsafeCell::new(None);
+#[cfg(not(feature = "raw-tls"))]
+thread_local! { static THREAD: Cell<*const Thread> = const {Cell::new( ptr::null()) }; }
 thread_local! { static THREAD_GUARD: ThreadGuard = const { ThreadGuard { id: Cell::new(0) } }; }
 
 // Guard to ensure the thread ID is released on thread exit.
@@ -178,8 +199,18 @@ impl Drop for ThreadGuard {
     fn drop(&mut self) {
         // Release the thread ID. Any further accesses to the thread ID will go through
         // get_slow which will either panic or initialize a new ThreadGuard.
+        #[cfg(feature = "raw-tls")]
         unsafe {
             ptr::write(THREAD.get(), None);
+        }
+        #[cfg(not(feature = "raw-tls"))]
+        unsafe {
+            THREAD.with(|thread| {
+                let thread = thread.replace(ptr::null());
+                if !thread.is_null() {
+                    Thread::free(self.id.get());
+                }
+            });
         }
 
         // Safety: We are in `drop` and the current thread uniquely owns this ID.
