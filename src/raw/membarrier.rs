@@ -369,8 +369,16 @@ mod windows {
 
 #[cfg(all(target_os = "macos", feature = "fast-barrier", not(miri)))]
 mod macos {
-    use core::sync::atomic::{self, Ordering};
     use std::sync::{Condvar, Mutex};
+    use std::{
+        sync::{
+            atomic::{self, Ordering},
+            LazyLock,
+        },
+        time,
+    };
+
+    use crate::guard;
 
     extern "C" {
         fn WEAK_MEMORY_BEGONE();
@@ -398,45 +406,96 @@ mod macos {
         Ordering::Relaxed
     }
 
-    #[inline]
-    pub fn heavy() {
-        static SERIALIZER: Mutex<(u64, u64, u64)> = Mutex::new((0, 0, 0));
-        static WAKER: Condvar = Condvar::new();
+    struct Tracker {
+        concurrent: u64,
+        waiting: u64,
+        completed: u64,
+        claimed: u64,
+    }
 
-        fn concurrency(waiting: u64) -> u64 {
-            if waiting <= 2 {
-                1
-            } else if waiting <= 5 {
-                2
-            } else {
-                1 + waiting / 4
+    impl Tracker {
+        fn new() -> Self {
+            Self {
+                concurrent: 0,
+                waiting: 0,
+                completed: 0,
+                claimed: 0,
             }
         }
+
+        fn claim(&mut self) -> Option<u64> {
+            fn concurrency(waiting: u64) -> u64 {
+                if waiting <= 2 {
+                    1
+                } else if waiting <= 5 {
+                    2
+                } else {
+                    2 + waiting / 4
+                }
+            }
+
+            let concurrency = concurrency(self.waiting);
+
+            if self.concurrent < concurrency {
+                self.concurrent += 1;
+                self.claimed += 1;
+                Some(self.claimed)
+            } else {
+                None
+            }
+        }
+
+        fn complete(&mut self, slot: u64) {
+            self.concurrent -= 1;
+            self.completed = std::cmp::max(self.completed, slot);
+        }
+
+        fn wait_until_after(&self) -> u64 {
+            self.completed
+        }
+
+        fn wait_enter(&mut self) {
+            self.waiting += 1;
+        }
+
+        fn wait_exit(&mut self) {
+            self.waiting -= 1;
+        }
+
+        fn is_done_waiting(&self, until_after: u64) -> bool {
+            self.completed > until_after
+        }
+    }
+
+    #[inline]
+    pub fn heavy() {
+        static SERIALIZER: LazyLock<Mutex<Tracker>> = LazyLock::new(|| Mutex::new(Tracker::new()));
+        static WAKER: Condvar = Condvar::new();
+        let got_slot;
 
         {
             let mut skip_after = None;
             let mut guard = SERIALIZER.lock().unwrap();
 
             'claim_responsibility: loop {
-                let (ref mut claimed, ref mut waiting, completed) = *guard;
-                match skip_after {
-                    Some(ref skip_after) if completed > *skip_after => return,
-                    _ => (),
+                if let Some(until_after) = skip_after
+                    && guard.is_done_waiting(until_after)
+                {
+                    return;
                 }
 
-                if *claimed < concurrency(*waiting) {
-                    *claimed += 1;
+                if let Some(slot) = guard.claim() {
+                    got_slot = Some(slot);
                     break 'claim_responsibility;
                 }
 
                 if skip_after.is_none() {
-                    skip_after = Some(completed);
+                    skip_after = Some(guard.wait_until_after());
                 }
 
-                *waiting += 1;
+                guard.wait_enter();
                 guard = WAKER.wait(guard).unwrap();
-                let (_, ref mut waiting, _) = *guard;
-                *waiting -= 1;
+                guard.wait_exit();
             }
         }
 
@@ -444,9 +503,7 @@ mod macos {
             WEAK_MEMORY_BEGONE();
         }
         let mut guard = SERIALIZER.lock().unwrap();
-        let (ref mut claimed, ref mut _waiting, ref mut completed) = *guard;
-        *completed += 1;
-        *claimed -= 1;
+        guard.complete(got_slot.unwrap());
         WAKER.notify_all();
     }
 }
