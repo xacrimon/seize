@@ -259,6 +259,44 @@ impl fmt::Debug for LocalGuard<'_> {
     }
 }
 
+pub struct OwnedGuardMut<'a, 'b> {
+    inner: &'b mut OwnedGuard<'a>,
+}
+
+impl<'a, 'b> OwnedGuardMut<'a, 'b> {
+    #[inline]
+    fn new(inner: &'b mut OwnedGuard<'a>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a, 'b> Guard for OwnedGuardMut<'a, 'b> {
+    #[inline]
+    fn refresh(&mut self) {
+        self.inner.refresh()
+    }
+
+    #[inline]
+    fn flush(&self) {
+        unsafe { self.inner.collector.raw.try_retire_batch(&self.inner.thread) }
+    }
+
+    #[inline]
+    fn collector(&self) -> &Collector {
+        self.inner.collector()
+    }
+
+    #[inline]
+    fn thread_id(&self) -> usize {
+        self.inner.thread_id()
+    }
+
+    #[inline]
+    unsafe fn defer_retire<T>(&self, ptr: *mut T, reclaim: unsafe fn(*mut T, &Collector)) {
+        unsafe { self.inner.collector.raw.add(ptr, reclaim, &self.inner.thread) }
+    }
+}
+
 /// A guard that protects objects for it's lifetime, independent of the current
 /// thread.
 ///
@@ -290,9 +328,9 @@ unsafe impl Sync for OwnedGuard<'_> {}
 // thread-locals.
 unsafe impl Send for OwnedGuard<'_> {}
 
-impl OwnedGuard<'_> {
+impl<'a> OwnedGuard<'a> {
     #[inline]
-    pub(crate) fn enter(collector: &Collector) -> OwnedGuard<'_> {
+    pub(crate) fn enter(collector: &'a Collector) -> OwnedGuard<'a> {
         // Create a thread slot that will last for the lifetime of this guard.
         let thread = Thread::create();
 
@@ -307,6 +345,10 @@ impl OwnedGuard<'_> {
             thread,
             reservation,
         }
+    }
+
+    pub fn as_mut<'b>(&'b mut self) -> OwnedGuardMut<'a, 'b> {
+        OwnedGuardMut::new(self)
     }
 }
 
