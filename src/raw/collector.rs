@@ -93,7 +93,8 @@ impl Collector {
     /// Strengthens an ordering to that necessary to protect the load of a
     /// pointer.
     #[inline]
-    pub fn protect(_order: Ordering) -> Ordering {
+    pub fn protect(order: Ordering) -> Ordering {
+        membarrier::light_barrier();
         // We have to respect both the user provided ordering and the ordering required
         // by the membarrier strategy. `SeqCst` is equivalent to `Acquire` on
         // most platforms, so we just use it unconditionally.
@@ -101,7 +102,11 @@ impl Collector {
         // Loads performed with this ordering, paired with the light barrier in `enter`,
         // will participate in the total order established by `enter`, and thus see the
         // new values of any pointers that were retired when the thread was inactive.
-        Ordering::SeqCst
+        //if order == Ordering::Acquire || order == Ordering::AcqRel || order == Ordering::SeqCst {
+        //    order
+        //} else {
+            membarrier::light_load()
+        //}
     }
 
     /// Mark the current thread as inactive.
@@ -115,7 +120,8 @@ impl Collector {
     pub unsafe fn leave(&self, reservation: &Reservation) {
         // Release: Exit the critical section, ensuring that any pointer accesses
         // happen-before we are marked as inactive.
-        let head = reservation.head.swap(Entry::INACTIVE, Ordering::Release);
+        let head = reservation.head.swap(Entry::INACTIVE, membarrier::light_store());
+        membarrier::light_barrier();
 
         if head != Entry::INACTIVE {
             // Acquire any new entries in the reservation list, as well as the new values of
@@ -137,7 +143,7 @@ impl Collector {
     #[inline]
     pub unsafe fn refresh(&self, reservation: &Reservation) {
         // SeqCst: Establish the ordering of a combined call to `leave` and `enter`.
-        let head = reservation.head.swap(ptr::null_mut(), Ordering::SeqCst);
+        let head = reservation.head.swap(ptr::null_mut(),  membarrier::light_load());
 
         if head != Entry::INACTIVE {
             // Decrement the reference counts of any batches that were retired.

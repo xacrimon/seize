@@ -385,7 +385,7 @@ mod macos {
 
     #[inline]
     pub fn light_load() -> Ordering {
-        Ordering::SeqCst
+        Ordering::Relaxed
     }
 
     #[inline]
