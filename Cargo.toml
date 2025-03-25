@@ -19,6 +19,10 @@ windows-sys = { version = "0.59", features = ["Win32_System_Threading"], optiona
 [features]
 default = ["fast-barrier"]
 
+# Uses the thread_local attribute to improve code size and performance for accessing thread IDs.
+# This feature requires nightly.
+raw-tls = []
+
 # Enables runtime detection of fast memory barriers on Linux and Windows.
 fast-barrier = ["windows-sys", "libc"]
 
