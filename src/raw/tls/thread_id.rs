@@ -150,7 +150,7 @@ impl Thread {
             ptr::write(THREAD.get(), Some(new));
         }
         #[cfg(not(feature = "raw-tls"))]
-        THREAD.with(|thread| thread.set(&new));
+        THREAD.with(|thread| thread.set(Box::into_raw(Box::new(new))));
         THREAD_GUARD.with(|guard| guard.id.set(new.id));
         #[cfg(feature = "raw-tls")]
         unsafe {
@@ -210,6 +210,8 @@ impl Drop for ThreadGuard {
                 if !thread.is_null() {
                     Thread::free(self.id.get());
                 }
+
+                drop(Box::from_raw(thread as *mut Thread));
             });
         }
 
